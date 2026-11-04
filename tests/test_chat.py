@@ -171,6 +171,9 @@ async def test_inference_uses_local_server_and_parses_openai_compatible_response
     assert captured["url"].endswith("/v1/chat/completions")
     assert "authorization" not in captured["headers"]
     assert '"role":"system"' in captured["payload"]
+    assert "Your application and assistant name is Max-AI." in captured["payload"]
+    assert "A-maxcode, also known as Angelo Besas" in captured["payload"]
+    assert "did not create the underlying SmolLM2 foundation model" in captured["payload"]
     assert "max_tokens" in captured["payload"]
     assert '"model":"test-model"' in captured["payload"]
 

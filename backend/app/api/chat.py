@@ -22,6 +22,7 @@ from app.services.conversation import (
     prepare_chat_turn,
     save_assistant_reply,
 )
+from app.services.identity import identity_reply
 from app.services.inference import generate_reply
 
 
@@ -44,7 +45,7 @@ async def chat(
         window_seconds=60,
     )
     conversation, context = await prepare_chat_turn(session, user, payload)
-    reply = await generate_reply(context)
+    reply = identity_reply(context[-1].content) or await generate_reply(context)
     await save_assistant_reply(session, conversation, reply)
     return ChatResponse(reply=reply, conversation_id=conversation.id)
 

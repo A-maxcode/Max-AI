@@ -8,6 +8,7 @@ const authSubmit = document.querySelector("#auth-submit");
 const authMode = document.querySelector("#auth-mode");
 const authMessage = document.querySelector("#auth-message");
 const chatView = document.querySelector("#chat-view");
+const conversationElement = document.querySelector(".conversation");
 const accountEmail = document.querySelector("#account-email");
 const logoutButton = document.querySelector("#logout-button");
 const statusElement = document.querySelector("#status");
@@ -22,6 +23,35 @@ const welcome = document.querySelector("#welcome");
 let registering = false;
 let sending = false;
 let conversationId = null;
+
+function syncAppViewportHeight() {
+  const viewport = window.visualViewport;
+  const shouldFollowConversation = isConversationNearBottom();
+  if (viewport && window.innerWidth <= 600) {
+    document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
+  } else {
+    document.documentElement.style.removeProperty("--app-height");
+  }
+  if (shouldFollowConversation) scrollConversationToBottom();
+}
+
+function isConversationNearBottom() {
+  return (
+    conversationElement.scrollHeight -
+      conversationElement.scrollTop -
+      conversationElement.clientHeight <
+    96
+  );
+}
+
+function scrollConversationToBottom(behavior = "auto") {
+  requestAnimationFrame(() => {
+    conversationElement.scrollTo({
+      top: conversationElement.scrollHeight,
+      behavior,
+    });
+  });
+}
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -70,6 +100,7 @@ function showChat(user) {
 }
 
 function addMessage(role, content, isError = false) {
+  const shouldFollow = isConversationNearBottom();
   const message = document.createElement("article");
   message.className = `message ${role}`;
 
@@ -83,7 +114,7 @@ function addMessage(role, content, isError = false) {
 
   message.append(label, body);
   messagesElement.append(message);
-  message.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (shouldFollow) scrollConversationToBottom();
 }
 
 function showLoading() {
@@ -137,6 +168,7 @@ async function openConversation(id) {
       addMessage(message.role, message.content);
     }
     await refreshConversations();
+    scrollConversationToBottom();
   } catch (error) {
     if (error.status === 401) showAuth("Your session expired. Please sign in again.");
     else addMessage("assistant", error.message, true);
@@ -187,6 +219,7 @@ async function submitMessage(text) {
   promptInput.style.height = "auto";
   sendButton.disabled = true;
   showLoading();
+  scrollConversationToBottom();
 
   try {
     const payload = {
@@ -204,6 +237,7 @@ async function submitMessage(text) {
     conversationId = result.conversation_id;
     addMessage("assistant", result.reply);
     await refreshConversations();
+    if (isConversationNearBottom()) scrollConversationToBottom();
   } catch (error) {
     document.querySelector("#loading-message")?.remove();
     if (error.status === 401) showAuth("Your session expired. Please sign in again.");
@@ -285,6 +319,13 @@ promptInput.addEventListener("keydown", (event) => {
 document.querySelectorAll(".suggestion").forEach((button) => {
   button.addEventListener("click", () => submitMessage(button.textContent));
 });
+
+syncAppViewportHeight();
+window.addEventListener("resize", syncAppViewportHeight);
+window.visualViewport?.addEventListener("resize", syncAppViewportHeight);
+new ResizeObserver(() => {
+  if (isConversationNearBottom()) scrollConversationToBottom();
+}).observe(conversationElement);
 
 async function initialize() {
   try {

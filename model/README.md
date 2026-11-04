@@ -1,54 +1,47 @@
 # Local GGUF model
 
-Max-AI uses an existing open-weight model; it does not train a foundation
-model. The included Compose service runs the CPU-capable llama.cpp server and
-loads a GGUF file from `model/weights/`. Model files are intentionally excluded
-from Git and are never downloaded by the application at startup.
+Max-AI runs the existing **SmolLM2 1.7B Instruct** model through the official
+CPU-capable llama.cpp server image. This is a downloaded open-weight model, not
+a foundation model trained by Max-AI.
 
-## Select a model
+## Selected model
 
-The starter configuration uses **Qwen2.5-3B-Instruct GGUF**, an existing
-instruction-tuned model published by Qwen
-([model card and files](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF)).
-Its Q4_K_M quantization is a reasonable CPU-oriented starting point for
-personal testing. The linked GGUF repository includes a Qwen Research License
-Agreement; do not assume Apache 2.0 applies to this artifact. Review the
-exact model card and terms before use. Before using any model:
+- Publisher: Hugging FaceTB
+- GGUF repository: [`HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF`](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF)
+- File: `smollm2-1.7b-instruct-q4_k_m.gguf`
+- Quantization: Q4_K_M
+- Download size: about 1.06 GB
+- Repository license metadata: Apache-2.0
 
-1. Read the model card and verify the publisher, architecture, GGUF file, and
-   exact license for the artifact you download.
-2. Confirm that your intended use complies with its license and any applicable
-   acceptable-use terms. "Open weight" does not mean public domain or
-   unrestricted use.
-3. Check storage and RAM/VRAM requirements for the chosen quantization,
-   context length, and expected concurrent users. A 3B Q4 model file is around
-   2 GB; plan for additional memory for the runtime, KV cache, OS, and other
-   services. 8 GB or more system RAM is a practical minimum for a small CPU
-   test deployment, not a performance guarantee.
-4. For GPU acceleration, use a llama.cpp image built for your hardware and
-   configure GPU passthrough explicitly. The default `server` image runs on
-   CPU; no GPU is assumed.
+Review the model card and license before changing the model or using it for a
+different purpose. The current model is suitable for a small CPU test server;
+quality and speed are limited compared with larger models. This Codespace has
+2 CPU cores and an 8 GiB Docker memory limit. The configuration uses a 2048
+token context, two CPU threads, a single inference slot, and small batches to
+fit that environment.
 
-## Download a model manually
+## Model storage
 
-Install the Hugging Face CLI separately if needed, review the model card, and
-download only the GGUF file you selected:
+The model file is stored at:
 
-```sh
-hf download Qwen/Qwen2.5-3B-Instruct-GGUF \
-  qwen2.5-3b-instruct-q4_k_m.gguf \
-  --local-dir model/weights
+```text
+model/weights/smollm2-1.7b-instruct-q4_k_m.gguf
 ```
 
-Set `MODEL_FILE` in the root `.env` to the downloaded filename. Use a different
-repository and filename only after verifying that the model is compatible with
-llama.cpp and its license. Keep weights in `model/weights/`; that directory is
-git-ignored and is mounted read-only into the inference container.
+Compose bind-mounts `model/weights/` read-only at `/models` inside llama.cpp.
+The host directory persists when containers are recreated and is ignored by
+Git, so the model binary is not included in commits or Docker build context.
+To download it again:
 
-## Runtime configuration
+```sh
+curl --fail --location --retry 3 \
+  --output model/weights/smollm2-1.7b-instruct-q4_k_m.gguf \
+  https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf
+```
 
-`MODEL_CONTEXT_LENGTH`, `MODEL_MAX_TOKENS`, and `MODEL_GPU_LAYERS` configure
-llama.cpp at container startup. `MODEL_SERVER_URL` points the backend at the
-private Compose service. The model server port is bound to `127.0.0.1` for
-host-based development and is not exposed on public interfaces; in Compose,
-the backend reaches it over the private service network.
+Set `MODEL_PATH` in `.env` to the matching container path (default:
+`/models/smollm2-1.7b-instruct-q4_k_m.gguf`). `MODEL_CONTEXT_LENGTH`,
+`MODEL_MAX_TOKENS`, `MODEL_THREADS`, `MODEL_BATCH_SIZE`, and
+`MODEL_GPU_LAYERS` tune the llama.cpp CPU server. The backend uses
+`MODEL_SERVER_URL=http://model-server:8080` over a private Docker network; the
+model server has no published host port.

@@ -23,23 +23,37 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server
     command:
       - -m
-      - /models/${MODEL_FILE:-model.gguf}
+      - ${MODEL_PATH:-/models/model.gguf}
       - --host
       - 0.0.0.0
       - --port
       - "8080"
       - --ctx-size
-      - "${MODEL_CONTEXT_LENGTH:-4096}"
+      - "${MODEL_CONTEXT_LENGTH:-2048}"
       - --predict
-      - "${MODEL_MAX_TOKENS:-512}"
+      - "${MODEL_MAX_TOKENS:-256}"
+      - --threads
+      - "${MODEL_THREADS:-2}"
+      - --threads-batch
+      - "${MODEL_THREADS:-2}"
+      - --batch-size
+      - "${MODEL_BATCH_SIZE:-128}"
+      - --ubatch-size
+      - "${MODEL_BATCH_SIZE:-128}"
+      - --parallel
+      - "1"
       - --n-gpu-layers
       - "${MODEL_GPU_LAYERS:-0}"
     volumes:
       - ./model/weights:/models:ro
     expose:
       - "8080"
-    ports:
-      - "127.0.0.1:${MODEL_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -61,10 +75,11 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maxai}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-maxai}
       MODEL_SERVER_URL: http://model-server:8080
       MODEL_NAME: ${MODEL_NAME:-auto}
+      MODEL_PATH: ${MODEL_PATH:-/models/model.gguf}
       MODEL_SYSTEM_PROMPT: ${MODEL_SYSTEM_PROMPT:-You are a helpful, clear, and friendly assistant.}
-      MODEL_CONTEXT_LENGTH: ${MODEL_CONTEXT_LENGTH:-4096}
-      MODEL_MAX_TOKENS: ${MODEL_MAX_TOKENS:-512}
-      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-120}
+      MODEL_CONTEXT_LENGTH: ${MODEL_CONTEXT_LENGTH:-2048}
+      MODEL_MAX_TOKENS: ${MODEL_MAX_TOKENS:-256}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-180}
       MODEL_TEMPERATURE: ${MODEL_TEMPERATURE:-0.7}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
@@ -77,7 +92,7 @@ services:
       db:
         condition: service_healthy
       model-server:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -106,3 +121,4 @@ volumes:
 networks:
   database:
   inference:
+    internal: true

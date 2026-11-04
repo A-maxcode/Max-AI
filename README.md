@@ -14,19 +14,19 @@ Browser ──same-origin──> FastAPI ──private Compose network──> ll
                               └──private Compose network──> PostgreSQL
 ```
 
-Only the FastAPI app is published on port 8000. PostgreSQL and llama.cpp ports
-are bound to host loopback for local development and are not published to the
-public network. The model weights are mounted read-only and are not included in
-the application image or Git.
+Only FastAPI is published for the web UI. PostgreSQL is bound to host loopback
+for local development, while llama.cpp has no host-published port and is
+reachable only by the backend on a private Docker network. Model weights are
+mounted read-only and excluded from Git and the backend image.
 
 ## Requirements
 
 - Docker Engine and Docker Compose v2.
-- A compatible GGUF model downloaded separately; see [`model/README.md`](model/README.md).
-- Enough disk, RAM, and optionally VRAM for the selected model, quantization,
-  context length, and other running services. A small 3B Q4 model is around
-  2 GB on disk; 8 GB or more of system RAM is a practical minimum for a small
-  CPU test setup, not a speed or production guarantee.
+- The configured 1.7B Q4_K_M GGUF model (about 1.06 GB), downloaded separately
+  into `model/weights/`; see [`model/README.md`](model/README.md).
+- Enough RAM for PostgreSQL, llama.cpp, its model weights and context cache.
+  The Codespaces configuration targets 2 CPU cores and an 8 GiB Docker memory
+  limit; inference speed depends on the Codespace allocation.
 - Python 3.11+ only for running the backend and tests directly on the host.
 
 CPU inference is the default. GPU acceleration requires a matching llama.cpp
@@ -91,14 +91,16 @@ Useful settings:
 | `APP_PORT` | Host port for the FastAPI app (default `8000`) |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL database credentials |
 | `DATABASE_URL` | SQLAlchemy URL for direct local development; Compose constructs its private `db` URL |
-| `MODEL_SERVER_URL` | Private llama.cpp origin; defaults to `http://127.0.0.1:8080` for host development |
+| `MODEL_SERVER_URL` | Internal llama.cpp URL; Compose sets `http://model-server:8080` |
 | `MODEL_NAME` | `auto` selects the first model reported by llama.cpp, or specify an exact loaded model ID |
 | `MODEL_SYSTEM_PROMPT` | System instructions sent to the local model |
-| `MODEL_FILE` | GGUF filename inside `model/weights/` |
-| `MODEL_CONTEXT_LENGTH` | llama.cpp context size (default `4096`) |
-| `MODEL_MAX_TOKENS` | Generation limit (default `512`, must be lower than context size) |
+| `MODEL_PATH` | Model path inside the model container (default `/models/smollm2-1.7b-instruct-q4_k_m.gguf`) |
+| `MODEL_CONTEXT_LENGTH` | llama.cpp context size (default `2048`) |
+| `MODEL_MAX_TOKENS` | Generation limit (default `256`, must be lower than context size) |
+| `MODEL_THREADS` | CPU generation and prompt-processing threads (default `2`) |
+| `MODEL_BATCH_SIZE` | llama.cpp prompt batch size (default `128`) |
 | `MODEL_GPU_LAYERS` | Layers offloaded to a supported GPU; default `0` for CPU |
-| `MODEL_TIMEOUT_SECONDS` | Backend inference timeout |
+| `MODEL_TIMEOUT_SECONDS` | Backend inference timeout (default `180` seconds) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Maximum login-session lifetime |
 | `FRONTEND_ORIGINS` | Comma-separated explicit CORS origins; wildcard origins are rejected |
 | `ALLOW_REGISTRATION` | Disable public sign-up after creating intended accounts |
@@ -110,31 +112,40 @@ tokens are looked up server-side rather than signed, there is no static JWT
 signing secret to configure. Production cookies are marked Secure; serve the
 application behind a TLS-enabled reverse proxy.
 
+## Assistant identity
+
+The assistant identifies as **Max-AI**, developed by **A-maxcode**, also known
+as **Angelo Besas**. The local-model system prompt reinforces this identity and
+clarifies that A-maxcode developed the application, not the underlying
+SmolLM2 foundation model. Direct identity questions receive canonical,
+persisted answers; ordinary messages continue through llama.cpp.
+
 ## Install a model
 
-Review the model card and exact license before downloading or using any weights.
-The suggested test model is Qwen2.5-3B-Instruct GGUF; model selection and a
-manual Hugging Face CLI download command are documented in
-[`model/README.md`](model/README.md). Place the selected `.gguf` file in
-`model/weights/`, then set `MODEL_FILE` to its filename.
+The configured model is SmolLM2 1.7B Instruct Q4_K_M from the Hugging FaceTB
+publisher repository. Its repository metadata declares Apache-2.0. The exact
+source, file size, download command, CPU settings, and licensing reminder are
+documented in [`model/README.md`](model/README.md).
 
-Max-AI does not download weights at application startup. The directory is
-git-ignored and mounted read-only into the model container. Never commit model
-weights.
+The GGUF is downloaded to `model/weights/`; this persistent local directory is
+git-ignored and mounted read-only into the model container. The application
+does not download weights during startup. Never commit model weights.
 
 ## Run with Docker Compose
 
-1. Make sure `.env` has the database and model settings described above.
-2. Download a compatible GGUF file to `model/weights/`.
-3. Set `MODEL_FILE` to that file and keep `MODEL_GPU_LAYERS=0` for the CPU
-   default.
-4. Build and start the three services:
+1. Keep your existing `.env`; do not overwrite its PostgreSQL settings. Add
+   the model settings from `.env.example` if they are missing.
+2. Download the GGUF using the command in [`model/README.md`](model/README.md).
+   The file must exist at the path configured by `MODEL_PATH` inside the model
+   container.
+3. Keep `MODEL_GPU_LAYERS=0` for CPU inference.
+4. Build and start the services:
 
    ```sh
    docker compose up --build -d
    ```
 
-5. Check service status and health:
+5. Check service status and both readiness endpoints:
 
    ```sh
    docker compose ps
@@ -147,35 +158,36 @@ PostgreSQL volume, run `docker compose down`. Do not use `docker compose down -v
 unless you intentionally want to delete persisted application data.
 
 If running in Codespaces, forward port 8000 to view the UI. Codespaces typically
-does not provide GPU passthrough; use a model small enough for its available
-CPU and memory. The model server may restart or remain unavailable if the
-selected model file is missing or the machine runs out of memory.
+does not provide GPU passthrough; the configured small model runs CPU-only. The
+backend waits for PostgreSQL and the model-server health checks before it
+starts. If the model does not become healthy, inspect `docker compose logs
+model-server` and verify the GGUF path, available memory, and CPU settings.
 
-## Host-based development
+After startup, register through the page, send a prompt, and then send a
+follow-up in the same conversation. A successful answer is generated by the
+local GGUF model and both turns are persisted in PostgreSQL.
 
-This mode runs PostgreSQL and llama.cpp in Compose while running FastAPI and the
-frontend-serving app directly in the Python environment:
+## Verify PostgreSQL and llama.cpp
 
-```sh
-docker compose up -d db model-server
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-PYTHONPATH=backend python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The Compose database and model ports are exposed to the host **only on
-127.0.0.1** for this development workflow. Keep the Uvicorn terminal running
-while using the site. PostgreSQL migrations are applied automatically by the
-backend container in the full Compose deployment; for host-based development
-run:
+Check PostgreSQL readiness and its persistent schema:
 
 ```sh
-PYTHONPATH=backend alembic upgrade head
+docker compose exec db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
 ```
 
-The host app loads `.env` using Pydantic Settings. Do not copy `.env.example`
-over an existing private `.env`.
+Check llama.cpp and the backend's path to it:
+
+```sh
+docker compose ps
+docker compose logs --tail=100 model-server
+docker compose exec backend python -c "import urllib.request; print(urllib.request.urlopen('http://model-server:8080/health', timeout=5).status)"
+curl http://localhost:8000/api/health/model
+```
+
+The model service is not published to the host; reach it through Docker's
+`model-server` hostname from the backend container. Migrations run
+automatically before the backend starts.
 
 ## Authentication and API
 
@@ -242,13 +254,12 @@ Production deployment is not verified by the automated test suite.
 
 - **Health returns 503:** inspect `docker compose ps` and database container
   logs with `docker compose logs db backend`; verify `.env` DB values match.
-- **Model health is unavailable:** confirm the selected GGUF exists at the
-  configured path, inspect `docker compose logs model-server`, and check model
-  compatibility, RAM/VRAM, context length, and `MODEL_GPU_LAYERS`.
+- **Model health is unavailable:** confirm `MODEL_PATH` points to the mounted
+  GGUF, inspect `docker compose logs model-server`, and check model
+  compatibility, available RAM, context length, and CPU settings.
 - **Chat returns 503:** the backend cannot reach the local model server. Check
-  that the backend uses `http://model-server:8080` in Compose or
-  `http://127.0.0.1:8080` for host-based development. No external provider
-  fallback is attempted.
+  that Compose sets `MODEL_SERVER_URL=http://model-server:8080` and that the
+  model service is healthy. No external provider fallback is attempted.
 - **Cookie is not retained in production:** serve the app over HTTPS when
   `APP_ENV=production`; production cookies are Secure.
 - **Login/register throttled:** wait for the rate-limit window to expire. The

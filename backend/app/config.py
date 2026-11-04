@@ -26,9 +26,9 @@ class Settings(BaseSettings):
         default="You are a helpful, clear, and friendly assistant.",
         max_length=4000,
     )
-    model_context_length: int = Field(default=4096, ge=512, le=131072)
-    model_max_tokens: int = Field(default=512, ge=1, le=32768)
-    model_timeout_seconds: float = Field(default=120, gt=0, le=900)
+    model_context_length: int = Field(default=2048, ge=512, le=131072)
+    model_max_tokens: int = Field(default=256, ge=1, le=32768)
+    model_timeout_seconds: float = Field(default=180, gt=0, le=900)
     model_temperature: float = Field(default=0.7, ge=0, le=2)
     access_token_expire_minutes: int = Field(default=60, ge=5, le=10080)
     allow_registration: bool = True
