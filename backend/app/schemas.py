@@ -1,20 +1,6 @@
-from typing import Literal
+"""Compatibility re-exports for the original starter's schema imports."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.chat import ChatMessageInput as ChatMessage
+from app.schemas.chat import ChatRequest, ChatResponse
 
-
-class ChatMessage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=4000)
-
-
-class ChatRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    messages: list[ChatMessage] = Field(min_length=1, max_length=40)
-
-
-class ChatResponse(BaseModel):
-    reply: str
+__all__ = ["ChatMessage", "ChatRequest", "ChatResponse"]

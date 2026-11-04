@@ -1,6 +1,11 @@
 .env
+.env.*
+!.env.example
 .git
+**/.git
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.pytest_cache/
+model/weights/

@@ -1,9 +1,108 @@
 services:
-  assistant:
-    build: .
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-maxai}
+      POSTGRES_USER: ${POSTGRES_USER:-maxai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "8000:8000"
-    env_file:
-      - path: .env
-        required: false
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
+    networks:
+      - database
+
+  model-server:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - -m
+      - /models/${MODEL_FILE:-model.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${MODEL_CONTEXT_LENGTH:-4096}"
+      - --predict
+      - "${MODEL_MAX_TOKENS:-512}"
+      - --n-gpu-layers
+      - "${MODEL_GPU_LAYERS:-0}"
+    volumes:
+      - ./model/weights:/models:ro
+    expose:
+      - "8080"
+    ports:
+      - "127.0.0.1:${MODEL_PORT:-8080}:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - inference
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-Max-AI}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maxai}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-maxai}
+      MODEL_SERVER_URL: http://model-server:8080
+      MODEL_NAME: ${MODEL_NAME:-auto}
+      MODEL_SYSTEM_PROMPT: ${MODEL_SYSTEM_PROMPT:-You are a helpful, clear, and friendly assistant.}
+      MODEL_CONTEXT_LENGTH: ${MODEL_CONTEXT_LENGTH:-4096}
+      MODEL_MAX_TOKENS: ${MODEL_MAX_TOKENS:-512}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-120}
+      MODEL_TEMPERATURE: ${MODEL_TEMPERATURE:-0.7}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:8000}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-10}
+      CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-30}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      model-server:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - database
+      - inference
+
+volumes:
+  postgres_data:
+
+networks:
+  database:
+  inference:
